@@ -41,6 +41,15 @@ import { liveThreadsForColony } from './hidden-projects.js'
  */
 
 const STALE_MS = 3 * 24 * 60 * 60 * 1000
+/**
+ * How long a thread stays in the colony after it last did anything. Dormant crew asleep on
+ * the job are part of the picture; a transcript untouched for weeks is history. The
+ * distinction matters because terminal-started threads cannot be archived, so on a machine
+ * with months of CLI sessions history outnumbers the living colony several times over —
+ * plots overflow their building slots and the agent cap fills with astronauts for threads
+ * that will never wake, while the ones actually running go unstaffed.
+ */
+const HORIZON_MS = 7 * 24 * 60 * 60 * 1000
 /** How wide an astronaut is, for the purpose of not fitting through gaps it should not. */
 const AGENT_RADIUS = 0.26
 /** Progress a live thread adds per second, so a working site visibly grows while you watch. */
@@ -265,7 +274,9 @@ export class Colony {
    */
   setThreads(threads, archivedIds = new Set(), hiddenProjects = new Set(), knownIds = new Set()) {
     const now = Date.now()
-    const live = liveThreadsForColony(threads, archivedIds, hiddenProjects)
+    const live = liveThreadsForColony(threads, archivedIds, hiddenProjects).filter(
+      (t) => now - t.lastActivityAt <= HORIZON_MS
+    )
 
     // Group by repo, biggest project first so the busiest work lands nearest the middle.
     const byProject = new Map()
@@ -368,6 +379,15 @@ export class Colony {
     this.activePlots = active
     this._rebuildNavigation()
     this.stats = { ...stats, done: stats.celebrating }
+    // Who gets an astronaut when threads outnumber the agent cap. The roster is built in
+    // plot order — biggest repo first — and capping *that* let one busy repo claim the
+    // entire crew while the thread actually waiting on you, parked in a small repo, got
+    // nobody. So the cap is applied to a roster sorted the way the badges rank: whoever
+    // wants something first, then most recently touched.
+    roster.sort((a, b) => {
+      const rank = STATUS_ORDER.indexOf(a.status) - STATUS_ORDER.indexOf(b.status)
+      return rank || (b.thread.lastActivityAt ?? 0) - (a.thread.lastActivityAt ?? 0)
+    })
     this.astronauts.setRoster(roster, this._world())
     return this.stats
   }
@@ -649,15 +669,18 @@ export class Colony {
   }
 
   /**
-   * Names fade in for the plots that have something going on, and for whichever one you are
-   * pointing at. Everywhere else the colony stays unlabelled.
+   * Names at full strength for the plots that have something going on, and for whichever
+   * one you are pointing at. Quiet plots keep a faint plate rather than none: unlabelled
+   * they read as buildings that belong to nobody, and with most of a real thread list
+   * sitting idle that is most of the colony.
    */
   _updateLabels(dt) {
     const show = this.uiVisible && this.settings.get('showLabels')
+    const lit = (plot) => this.activePlots.has(plot.id) || this.hoveredPlot === plot
     for (const plot of this.plotOrder) {
       const label = plot.label
       if (!label) continue
-      const wanted = show && (this.activePlots.has(plot.id) || this.hoveredPlot === plot) ? 1 : 0
+      const wanted = !show ? 0 : lit(plot) ? 1 : 0.35
       const next = THREE.MathUtils.damp(label.material.opacity, wanted, 9, dt)
       label.material.opacity = next
       label.visible = next > 0.01

@@ -666,7 +666,15 @@ export class Plot {
   }
 
   slotFor(index) {
-    return this.slots[index % this.slots.length]
+    const slot = this.slots[index % this.slots.length]
+    const wrap = Math.floor(index / this.slots.length)
+    if (!wrap) return slot
+    // More threads than the plot has slots. The wrap used to land these exactly on their
+    // slot twin — two buildings occupying the same coordinates renders as one broken one.
+    // Nudged by golden angle instead, deterministic in the index so nothing ever jumps.
+    const a = index * 2.39996
+    const r = 0.7 * wrap
+    return { x: slot.x + Math.cos(a) * r, z: slot.z + Math.sin(a) * r }
   }
 
   worldSlot(index, out = new THREE.Vector3()) {

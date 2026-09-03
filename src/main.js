@@ -620,11 +620,15 @@ function applyThreads(list) {
   const stats = colony.setThreads(list, archivedSet, hiddenSet, known)
   hud.setStats(stats)
 
+  // Counted from the colony's own thread map rather than the raw scan, so the chip on a
+  // zone always agrees with the buildings standing on it — the colony filters out ancient
+  // history, and a chip claiming a hundred threads over five habitats reads as a bug.
+  const colonyThreads = [...colony.threads.values()]
   legendProjects = colony.plotOrder
     .map((plot) => ({
       name: plot.name,
       accent: plot.accent,
-      count: list.filter((t) => !t.archived && !archivedSet.has(t.id) && t.project === plot.name).length,
+      count: colonyThreads.filter((t) => t.project === plot.name).length,
       urgent: colony.urgentPlots?.has(plot.id) ?? false,
     }))
     .sort((a, b) => b.count - a.count)
